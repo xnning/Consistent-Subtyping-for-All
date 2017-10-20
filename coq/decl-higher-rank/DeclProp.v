@@ -2204,7 +2204,7 @@ Proof.
           apply* dtyp_less_precise_precise'.
 Qed.
 
-Lemma dconsist_directed_reserse : forall A B C,
+Lemma dconsist_directed_reverse : forall A B C,
     dtyp_less_precise A C ->
     dtyp_less_precise B C ->
     dconsist A B.
