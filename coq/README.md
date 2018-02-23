@@ -18,6 +18,7 @@ extensions (apart from the TLC library).
 + `PBCDef.v` - Definitions of the Polymorphic Blame Calculus.
 + `Criteria.v` - Proofs of the correctness criteria
 + `Translation.v` - Proofs of the safety of type-directed translation.
++ `MoreDeclDef.v` - Proofs for Appendix A
 
 # Lemmas and Theorems in the Paper #
 
@@ -28,5 +29,6 @@ extensions (apart from the TLC library).
 + `Lemma 2` - `Translation.v/dconsub_pcompatible`
 + `Theorem 2` - `Translation.v/d2ptyping_type`,
 + `Lemma 3` - `Criteria.v/conservative_extension`, `Criteria.v/monotonicity_precision`, `Criteria.v/monotonicity_cast_insertion`, `Translation.v/d2ptyping_typ`, `Translation.v/dtyping_d2ptyping`
-
++ `Lemma 4` - `MoreDeclDef.v/dtyping_mdtyping`
++ `Lemma 5` - `MoreDeclDef.v/mdtyping_dtyping`
 
