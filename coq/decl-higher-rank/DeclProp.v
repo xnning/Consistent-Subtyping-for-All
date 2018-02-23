@@ -367,6 +367,29 @@ Proof.
   f_equal~.
 Qed.
 
+Lemma dtyp_unknown_like_dsub_l: forall E A,
+    dokt E ->
+    dtyp_unknown_like A ->
+    dsub E A dtyp_unknown.
+Proof.
+  introv okt un. inductions un.
+  constructor~.
+  apply dsub_allL with dtyp_nat; auto.
+  rewrite~ dopen_unknown_like_fresh.
+Qed.
+
+Lemma dtyp_unknown_like_dsub_r: forall E A,
+    dokt E ->
+    dtyp_unknown_like A ->
+    dsub E dtyp_unknown A.
+Proof.
+  introv okt un. inductions un.
+  constructor~.
+  apply_fresh dsub_allR as x. 
+  rewrite~ dopen_unknown_like_fresh.
+  apply_empty dsub_weakening; auto.
+Qed.
+
 Lemma dwft_unknown_like : forall E A,
     ok E ->
     dtyp_unknown_like A ->
@@ -404,6 +427,43 @@ Proof.
   apply~ IHunn.
   apply~ dwft_push.
 Qed.
+
+Lemma dmatch_arrow: forall E A A1 A2,
+    dokt E ->
+    dwft E A ->
+    dmatch E A A1 A2 ->
+    dsub E A (dtyp_arrow A1 A2) \/
+    (dtyp_unknown_like A /\ A1 = dtyp_unknown /\ dtyp_unknown_like A2).
+Proof.
+  introv oke wft mat. inductions mat.
+  forwards : IHmat; auto.
+  apply~ dwft_open.
+  destruct H1 as [sub | unn].
+    left. apply dsub_trans with (dopen_tt A tau); auto.
+      apply dsub_allL with tau; auto.
+    right. destruct unn as [? [? ?]].
+      splits~. constructor.
+      eapply dopen_unknown_like.
+      exact H. auto.
+  left. apply~ dsub_refl.
+  right. splits~. 
+Qed.
+
+Lemma unknonw_like_match: forall E A,
+    ok E ->
+    dtyp_unknown_like A ->
+    exists B,
+      dmatch E A dtyp_unknown B /\
+      dtyp_unknown_like B.
+Proof.
+  introv oke un. inductions un.
+  exists dtyp_unknown. splits~. constructor~.
+  destruct IHun as (B & [? ?]).
+  exists B; splits~.
+  apply dmatch_all with dtyp_nat; auto.
+  rewrite~ dopen_unknown_like_fresh.
+Qed.
+
 
 (** * CONSIST SUBTYPING *)
 
@@ -690,6 +750,18 @@ Proof.
   lets (n1 & subs1) : dsub_dsub_size sub1.
   lets (n2 & subs2) : dsub_dsub_size sub2.
   apply dconsub_prop'2 with (n1:= n1) (n2:=n2) (C:= C) (D:=D) (m := S (num_of_all C + num_of_all D)) (n := S (n1 + n2)); auto.
+Qed.
+
+Lemma dconsub_dsub: forall E A B C,
+    dconsub E A B ->
+    dsub E B C ->
+    dconsub E A C.
+Proof.
+  introv csub sub.
+  apply dconsub_prop1 in csub.
+  destruct csub as (D1 & D2 & [? [? ?]]).
+  apply dconsub_prop2 with D1 D2; auto.
+  apply dsub_trans with B; auto.
 Qed.
 
 (** * STATIC *)
@@ -2204,7 +2276,7 @@ Proof.
           apply* dtyp_less_precise_precise'.
 Qed.
 
-Lemma dconsist_directed_reverse : forall A B C,
+Lemma dconsist_directed_reserse : forall A B C,
     dtyp_less_precise A C ->
     dtyp_less_precise B C ->
     dconsist A B.
