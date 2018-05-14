@@ -63,7 +63,8 @@ instance FPretty Type where
   ppr TUnknown = return "?"
   ppr TNum = return "Int"
   ppr (TVar x) = return (pretty x)
-  ppr (TEVar x) = return ("^" <> pretty x )
+  ppr (TEVar (ETS x)) = return ("^" <> pretty x <> "S" )
+  ppr (TEVar (ETG x)) = return ("^" <> pretty x <> "G" )
   ppr (TArr a b) = do
     a' <- ppr a
     b' <- ppr b

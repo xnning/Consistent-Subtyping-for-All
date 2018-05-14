@@ -10,7 +10,7 @@ import           Control.Monad.State (MonadState, State, evalState, get, gets, p
 import           Data.Foldable (toList)
 import           Data.Maybe (isJust)
 import           Data.Monoid ((<>))
-import           Data.Sequence (Seq)
+import           Data.Sequence (Seq(..))
 import           Unbound.Generics.LocallyNameless
 import           Unbound.Generics.LocallyNameless.Internal.Fold (toListOf)
 
@@ -25,9 +25,9 @@ import           Language.HigherRank.Types
 data CtxMember
   = CtxVar TyName
   | CtxAssump TmName Type
-  | CtxEVar TyName
-  | CtxSolved TyName Type
-  | CtxMarker TyName
+  | CtxEVar ETVar
+  | CtxSolved ETVar Type
+  | CtxMarker ETVar
   deriving Show
 
 instance Eq CtxMember where
@@ -106,7 +106,7 @@ ctxAssump (Ctx ctx) x = case assumptions of
         isAssump _ = False
         assumptions = filter isAssump $ toList ctx
 
-ctxSolution :: Ctx -> TyName -> Maybe Type
+ctxSolution :: Ctx -> ETVar -> Maybe Type
 ctxSolution (Ctx ctx) v = case solutions of
     [CtxSolved _ t] -> Just t
     [] -> Nothing
@@ -180,10 +180,17 @@ checkTypeWF t = getCtx >>= \ctx -> typeWF ctx t
 tySub :: Type -> Type -> CheckM ()
 tySub TUnit TUnit = return ()
 tySub TNum TNum = return ()
-tySub _ TUnknown = return ()
-tySub TUnknown _ = return ()
 tySub (TVar a) (TVar b) | a == b = return ()
-tySub (TEVar a) (TEVar b) | a == b = return ()
+tySub (TEVar (ETS a)) (TEVar (ETS b)) | a == b = return ()
+tySub (TEVar (ETG a)) (TEVar (ETG b)) | a == b = return ()
+tySub t TUnknown = do
+  ctx <- getCtx
+  ctx' <- contaminate t ctx
+  putCtx ctx'
+tySub TUnknown t = do
+  ctx <- getCtx
+  ctx' <- contaminate t ctx
+  putCtx ctx'
 tySub (TArr a b) (TArr a' b') = do
   tySub a' a
   ctx <- getCtx
@@ -192,100 +199,153 @@ tySub (TArr a b) (TArr a' b') = do
   tySub sb sb'
 tySub (TAll t) b = do
   (a, body) <- unbind t
-  â <- freshEVar
-  modifyCtx (\c -> c |> CtxMarker â |> CtxEVar â)
-  tySub (subst a (TEVar â) body) b
-  modifyCtx (ctxUntil (CtxMarker â))
+  as <- ETS <$> freshEVar
+  modifyCtx (\c -> c |> CtxMarker as |> CtxEVar as)
+  tySub (subst a (TEVar as) body) b
+  modifyCtx (ctxUntil (CtxMarker as))
 tySub a (TAll t) = do
   (b, body) <- unbind t
-  modifyCtx (|> CtxVar b)
+  modifyCtx (\c -> c |> CtxVar b)
   tySub a body
   modifyCtx (ctxUntil (CtxVar b))
 -- Jeremy: Should I check if â exists in the context?
 tySub (TEVar â) (TEVar â') = instL â (TEVar â') <|> instR (TEVar â) â'
-tySub (TEVar â) a | â `notElem` freeVars a = instL â a
-tySub a (TEVar â) | â `notElem` freeVars a = instR a â
+tySub (TEVar â) a | extract â `notElem` freeVars a = instL â a
+tySub a (TEVar â) | extract â `notElem` freeVars a = instR a â
 tySub a b = throwError $ "type mismatch: expected " ++ pprint b ++ ", given " ++ pprint a
 
 
+extract :: ETVar -> TyName
+extract (ETS n) = n
+extract (ETG n) = n
+
+contaminate :: Type -> Ctx -> CheckM Ctx
+contaminate _ ctx@(Ctx Empty) = return ctx
+contaminate t (Ctx (ctx :|> CtxEVar (ETS as)))
+  | as `elem` freeVars t = do
+      ag <- ETG <$> freshEVar
+      ctx' <- contaminate t (Ctx ctx)
+      return $ ctx' |> CtxEVar ag |> CtxSolved (ETS as) (TEVar ag)
+  | otherwise = do
+      ctx' <- contaminate t (Ctx ctx)
+      return $ ctx' |> CtxEVar (ETS as)
+contaminate t (Ctx (ctx :|> a)) = do
+      ctx' <- contaminate t (Ctx ctx)
+      return $ ctx' |> a
 
 --------------------------------
 -- | Instantiation
 --------------------------------
 
 
-instL :: TyName -> Type -> CheckM ()
+instL :: ETVar -> Type -> CheckM ()
 instL â t = getCtx >>= go
   -- Defer to a helper function so we can pattern match/guard against the
   -- current context.
   where
-    go ctx -- InstLSolve
+    go ctx -- ^InstLSolveS & instLSolveG
       | True <- isMono t
       , Just (l, r) <- ctxHole (CtxEVar â) ctx
       , Right _ <- l ⊢ t = putCtx $ l |> CtxSolved â t <> r
-    go _ -- InstLSolveU
-      | TUnknown <- t = return ()
-    go ctx -- InstLReach
+    go _ -- ^InstLSolveUG
+      | False <- isETS â
+      , TUnknown <- t = return ()
+    go ctx -- ^InstLSolveUS
+      | True <- isETS â
+      , TUnknown <- t
+      , Just (l, r) <- ctxHole (CtxEVar â) ctx = do
+        ag <- ETG <$> freshEVar
+        putCtx $ l |> CtxEVar ag |> CtxSolved â (TEVar ag) <> r
+    go ctx -- ^InstLReachSG1
+      | TEVar (ETG â') <- t
+      , True <- isETS â
+      , Just (l, m, r) <- ctxHole2 (CtxEVar â) (CtxEVar (ETG â')) ctx = do
+          ag <- ETG <$> freshEVar
+          putCtx $ l |> CtxEVar ag |> CtxSolved â (TEVar ag) <> m |> CtxSolved (ETG â') (TEVar ag) <> r
+    go ctx -- ^InstLReachSG2
+      | TEVar (ETS â') <- t
+      , False <- isETS â
+      , Just (l, m, r) <- ctxHole2 (CtxEVar â) (CtxEVar (ETG â')) ctx = do
+          bg <- ETG <$> freshEVar
+          putCtx $ l |> CtxEVar bg |> CtxSolved (ETS â') (TEVar bg) <> m |> CtxSolved â (TEVar bg) <> r
+    go ctx -- ^InstLReachOther
       | TEVar â' <- t
       , Just (l, m, r) <- ctxHole2 (CtxEVar â) (CtxEVar â') ctx =
-        putCtx $ l |> CtxEVar â <> m |> CtxSolved â' (TEVar â) <> r
-    go ctx -- InstLArr
+          putCtx $ l |> CtxEVar â  <> m |> CtxSolved â' (TEVar â) <> r
+    go ctx -- ^InstLArr
       | Just (l, r) <- ctxHole (CtxEVar â) ctx
       , TArr a b <- t = do
-        â1 <- freshEVar
-        â2 <- freshEVar
+        â1 <- (if isETS â then ETS else ETG) <$> freshEVar
+        â2 <- (if isETS â then ETS else ETG) <$> freshEVar
         putCtx $ l |> CtxEVar â2 |> CtxEVar â1 |> CtxSolved â (TArr (TEVar â1) (TEVar â2)) <> r
         instR a â1
         ctx' <- getCtx
         b' <- applySubst ctx' b
         instL â2 b'
-    go ctx -- InstLAllR
+    go ctx -- ^InstLAllR
       | TAll s <- t = do
         (a, body) <- unbind s
         putCtx $ ctx |> CtxVar a
         instL â body
-        Just (ctx', _) <- ctxHole (CtxVar a) <$> getCtx
-        putCtx ctx'
-    go _ =
-      throwError $
-      "instL: failed to instantiate " ++ pprint (TEVar â) ++ " to " ++ pprint t
+        modifyCtx $ ctxUntil (CtxVar a)
+        -- Just (ctx', _) <- ctxHole (CtxVar a) <$> getCtx
+        -- putCtx ctx'
+    go _ = throwError $ "instL: failed to instantiate " ++ pprint (TEVar â) ++ " to " ++ pprint t
 
-instR :: Type -> TyName -> CheckM ()
+instR :: Type -> ETVar -> CheckM ()
 instR t â = getCtx >>= go
   -- Defer to a helper function so we can pattern match/guard against the
   -- current context.
   where
-    go ctx -- InstRSolve
+    go ctx -- ^ InstRSolveS & InstRSolveG
       | True <- isMono t
       , Just (l, r) <- ctxHole (CtxEVar â) ctx
       , Right _ <- l ⊢ t = putCtx $ l |> CtxSolved â t <> r
-    go _ -- InstRSolveU
-      | TUnknown <- t = return ()
-    go ctx -- InstRReach
+    go _ -- ^InstLSolveUG
+      | False <- isETS â
+      , TUnknown <- t = return ()
+    go ctx -- ^InstLSolveUS
+      | True <- isETS â
+      , TUnknown <- t
+      , Just (l, r) <- ctxHole (CtxEVar â) ctx = do
+        ag <- ETG <$> freshEVar
+        putCtx $ l |> CtxEVar ag |> CtxSolved â (TEVar ag) <> r
+    go ctx -- ^InstLReachSG1
+      | TEVar (ETG â') <- t
+      , True <- isETS â
+      , Just (l, m, r) <- ctxHole2 (CtxEVar â) (CtxEVar (ETG â')) ctx = do
+          ag <- ETG <$> freshEVar
+          putCtx $ l |> CtxEVar ag |> CtxSolved â (TEVar ag) <> m |> CtxSolved (ETG â') (TEVar ag) <> r
+    go ctx -- ^InstLReachSG2
+      | TEVar (ETS â') <- t
+      , False <- isETS â
+      , Just (l, m, r) <- ctxHole2 (CtxEVar â) (CtxEVar (ETG â')) ctx = do
+          bg <- ETG <$> freshEVar
+          putCtx $ l |> CtxEVar bg |> CtxSolved (ETS â') (TEVar bg) <> m |> CtxSolved â (TEVar bg) <> r
+    go ctx -- ^InstLReachOther
       | TEVar â' <- t
       , Just (l, m, r) <- ctxHole2 (CtxEVar â) (CtxEVar â') ctx =
-        putCtx $ l |> CtxEVar â <> m |> CtxSolved â' (TEVar â) <> r
-    go ctx -- InstRArr
+          putCtx $ l |> CtxEVar â <> m |> CtxSolved â' (TEVar â) <> r
+    go ctx -- ^InstRArr
       | TArr a b <- t
       , Just (l, r) <- ctxHole (CtxEVar â) ctx = do
-        â1 <- freshEVar
-        â2 <- freshEVar
+        â1 <- (if isETS â then ETS else ETG) <$> freshEVar
+        â2 <- (if isETS â then ETS else ETG) <$> freshEVar
         putCtx $ l |> CtxEVar â2 |> CtxEVar â1 |> CtxSolved â (TArr (TEVar â1) (TEVar â2)) <> r
         instL â1 a
         ctx' <- getCtx
         b' <- applySubst ctx' b
         instR b' â2
-    go ctx -- InstRAllL
+    go ctx -- ^InstRAllLL
       | TAll s <- t = do
         (a, body) <- unbind s
-        â' <- freshEVar
+        â' <- ETS <$> freshEVar
         putCtx $ ctx |> CtxMarker â' |> CtxEVar â'
         instR (subst a (TEVar â') body) â
-        Just (ctx', _) <- ctxHole (CtxMarker â') <$> getCtx
-        putCtx ctx'
-    go _ =
-      throwError $
-      "instR: failed to instantiate " ++ pprint (TEVar â) ++ " to " ++ pprint t
+        modifyCtx $ ctxUntil (CtxMarker â')
+        -- Just (ctx', _) <- ctxHole (CtxMarker â') <$> getCtx
+        -- putCtx ctx'
+    go _ = throwError $ "instR: failed to instantiate " ++ pprint (TEVar â) ++ " to " ++ pprint t
 
 --------------------------------
 -- | Checking
@@ -296,12 +356,12 @@ check EUnit TUnit = return ()
 check (LitV _) TNum = return ()
 check e (TAll t) = do
   (a, body) <- unbind t
-  modifyCtx (|> CtxVar a)
+  modifyCtx (\c -> c |> CtxVar a)
   check e body
   modifyCtx (ctxUntil (CtxVar a))
 check (ELam e) (TArr a b) = do
   (x, body) <- unbind e
-  modifyCtx (|> CtxAssump x a)
+  modifyCtx (\c -> c |> CtxAssump x a)
   check body b
   modifyCtx (ctxUntil (CtxAssump x a))
 check (ELet b) t = do
@@ -334,8 +394,8 @@ infer (EVar x) = do
 infer (EAnn e a) = checkTypeWF a >> check e a >> return a
 infer (ELam e) = do
   (x, body) <- unbind e
-  â <- freshEVar
-  â' <- freshEVar
+  â <- ETS <$> freshEVar
+  â' <- ETS <$> freshEVar
   modifyCtx (\c -> c |> CtxEVar â |> CtxEVar â' |> CtxAssump x (TEVar â))
   check body (TEVar â')
   modifyCtx (ctxUntil (CtxAssump x (TEVar â)))
@@ -343,7 +403,7 @@ infer (ELam e) = do
 infer (ELamA e) = do
   ((x, Embed t), body) <- unbind e
   checkTypeWF t
-  â <- freshEVar
+  â <- ETS <$> freshEVar
   modifyCtx (\c -> c |> CtxEVar â |> CtxAssump x t)
   check body (TEVar â)
   modifyCtx (ctxUntil (CtxAssump x t))
@@ -360,7 +420,7 @@ infer (EApp e1 e2) = do
 infer (ELet b) = do
   ((x, Embed e1), e2) <- unbind b
   t <- infer e1
-  â <- freshEVar
+  â <- ETS <$> freshEVar
   modifyCtx (\c -> c |> CtxEVar â |> CtxAssump x t)
   check e2 (TEVar â)
   modifyCtx (ctxUntil (CtxAssump x t))
@@ -372,16 +432,15 @@ infer EFalse = return TBool
 matching :: Type -> CheckM (Type, Type)
 matching TUnknown  = return (TUnknown, TUnknown)
 matching (TEVar â) = do
-  â1 <- freshEVar
-  â2 <- freshEVar
-  ctx <- getCtx
-  let Just (l, r) = ctxHole (CtxEVar â) ctx
+  â1 <- (if isETS â then ETS else ETG) <$> freshEVar
+  â2 <- (if isETS â then ETS else ETG) <$> freshEVar
+  Just (l, r) <- ctxHole (CtxEVar â) <$> getCtx
   putCtx $ l |> CtxEVar â2 |> CtxEVar â1 |> CtxSolved â (TArr (TEVar â1) (TEVar â2)) <> r
   return (TEVar â1, TEVar â2)
 matching (TAll t) = do
   (a, body) <- unbind t
-  â <- freshEVar
-  modifyCtx (|> CtxEVar â)
+  â <- ETS <$> freshEVar
+  modifyCtx (\c -> c |> CtxEVar â)
   matching (subst a (TEVar â) body)
 matching (TArr a b) = return (a, b)
 matching t = throwError $ "cannot matching " ++ pprint t

@@ -48,12 +48,23 @@ elet s e b = ELet (bind (s2n s, embed e) b)
 --------------------------------------------------------------------------------
 -- Types
 
+data ETVar
+  = ETS TyName
+  | ETG TyName
+  deriving (Show, Generic, Eq)
+
+
+isETS :: ETVar -> Bool
+isETS (ETS _) = True
+isETS _ = False
+
+
 data Type
   = TUnit
   | TNum
   | TUnknown
   | TVar TyName
-  | TEVar TyName
+  | TEVar ETVar
   | TArr Type Type
   | TAll (Bind TyName Type)
   | TBool
@@ -72,8 +83,11 @@ tforall t b = TAll (bind (s2n t) b)
 
 instance Alpha Expr
 instance Alpha Type
+instance Alpha ETVar
 
 instance Subst Expr Type
+instance Subst Expr ETVar
+instance Subst Type ETVar
 
 instance Subst Expr Expr where
   isvar (EVar v) = Just (SubstName v)
