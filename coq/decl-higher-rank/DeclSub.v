@@ -1,6 +1,6 @@
 Set Implicit Arguments.
 
-Require Import LibLN.
+Require Import TLC.LibLN.
 Implicit Types x : var.
 Require Import DeclDef DeclInfra.
 
@@ -27,7 +27,7 @@ Inductive dsub' : denv -> dtyp -> dtyp -> Prop :=
       dsub' E (dopen_tt A tau) B ->
       dsub' E (dtyp_all A) B
   | dsub'_allR : forall x E A B,
-      x \notin dom E \u dfv_tt_env E \u dfv_tt A \u dfv_tt B ->
+      x \notin dom E \u dfv_tt A \u dfv_tt B ->
 
       dsub' (E & x ~tvar) A (B dopen_tt_var x) ->
       dsub' E A (dtyp_all B)

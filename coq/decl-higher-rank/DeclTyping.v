@@ -1,5 +1,5 @@
 Set Implicit Arguments.
-Require Import LibLN.
+Require Import TLC.LibLN.
 Implicit Types x : var.
 
 Require Import DeclDef DeclInfra DeclProp.
@@ -14,7 +14,7 @@ Inductive dtyping' : denv -> dtrm -> dtyp -> Prop :=
       dtyping' E (dtrm_nat i) (dtyp_nat)
   | dtyping'_absann : forall x E A B e,
       dwft empty A ->
-      x \notin (dom E \u dfv_ee e \u dfv_tt A \u dfv_tt B) ->
+      x \notin (dom E \u dfv_ee e) ->
       dtyping' (E & x ~: A) (e dopen_ee_var x) B ->
       dtyping' E (dtrm_absann A e) (dtyp_arrow A B)
   | dtyping'_app : forall E e1 e2 A A1 A2 A3,
@@ -24,7 +24,7 @@ Inductive dtyping' : denv -> dtrm -> dtyp -> Prop :=
       dconsub E A3 A1 ->
       dtyping' E (dtrm_app e1 e2) A2
   | dtyping'_abs : forall x E A B e,
-      x \notin (dom E \u dfv_ee e \u dfv_tt A \u dfv_tt B) ->
+      x \notin (dom E \u dfv_ee e) ->
       dtyp_mono A ->
       dtyping' (E & x ~: A) (e dopen_ee_var x) B ->
       dtyping' E (dtrm_abs e) (dtyp_arrow A B)
@@ -32,6 +32,11 @@ Inductive dtyping' : denv -> dtrm -> dtyp -> Prop :=
       a \notin (dom E \u dfv_tt A) ->
       dtyping' (E & a ~tvar) e (A dopen_tt_var a) ->
       dtyping' E e (dtyp_all A)
+  | dtyping'_let : forall x E A B e1 e2,
+      x \notin (dom E \u dfv_ee e2) ->
+      dtyping' E e1 A ->
+      dtyping' (E & x ~: A) (e2 dopen_ee_var x) B ->
+      dtyping' E (dtrm_let e1 e2) B
 .
 
 Hint Constructors dtyping dtyping'.
@@ -45,6 +50,8 @@ Proof.
   apply dtyping'_abs with x; auto.
   pick_fresh x.
   apply dtyping'_gen with x; auto.
+  pick_fresh x.
+  apply dtyping'_let with (x:=x) (A:=A); auto.
 Qed.
 
 Lemma dtyping_subst : forall E F t T z u U,
@@ -57,7 +64,7 @@ Proof.
   case_var*.
     binds_mid~.
     apply dtyping_var; autos*.
-    inversions H1.
+    inversions TEMP.
     apply~ binds_middle_eq.
     lets: dok_from_okt okt.
     lets ~ : ok_middle_inv_r H0.
@@ -105,6 +112,20 @@ Proof.
   forwards * : H0.
   rewrite* concat_assoc.
   rewrite~ concat_assoc.
+  rewrite concat_assoc in H1; auto.
+
+  apply_fresh dtyping_let as x; auto.
+  specializes H0 x E (F & x ~: A) z U.
+  forwards * : H0.
+  rewrite* concat_assoc.
+  rewrite~ concat_assoc.
+  constructor~.
+  specializes H x. forwards ~ : H.
+  lets~ [? _]: dtyping_regular H1.
+  apply dokt_push_typ_inv in H2; auto.
+  apply dwft_strengthen_typ in H2.
+  apply* dwft_weakening.
+  rewrite* dsubst_ee_open_ee_var.
   rewrite concat_assoc in H1; auto.
 Qed.
 
@@ -206,6 +227,15 @@ Proof.
   rewrite map_push in H1.
   rewrite concat_assoc in H1.
   rewrite~ dsubst_tt_open_tt_var.
+
+  apply_fresh dtyping_let as x; auto.
+  forwards ~ : H0 x E (F & x ~: A) z.
+  rewrite~ concat_assoc.
+  rewrite map_push.
+  rewrite concat_assoc.
+  constructor~.
+  rewrite map_push in H1.
+  rewrite concat_assoc in H1; auto.
 Qed.
 
 Lemma dtyping_rename_tvar : forall x y E t S,
@@ -245,4 +275,30 @@ Proof.
   forwards~ : dtyping_rename_tvar a IHty; simpls~; auto.
   instantiate (TEMP := x); auto.
   auto.
+
+  apply_fresh dtyping_let as x; autos*.
+  forwards~ : dtyping_rename y IHty2; simpls~.
 Qed.
+
+Lemma dtyping'_regular : forall E e T,
+  dtyping' E e T -> dokt E /\ dterm e /\ dwft E T.
+Proof.
+  introv ty.
+  apply dtyping'_dtyping in ty.
+  apply~ dtyping_regular.
+Qed.
+
+Hint Extern 1 (dokt ?E) =>
+  match goal with
+  | H: dtyping' _ _ _ |- _ => apply (proj31 (dtyping'_regular H))
+  end.
+
+Hint Extern 1 (dterm ?E) =>
+  match goal with
+  | H: dtyping' _ _ _ |- _ => apply (proj32 (dtyping'_regular H))
+  end.
+
+Hint Extern 1 (dwft ?E ?t) =>
+  match goal with
+  | H: dtyping' _ _ _ |- _ => apply (proj33 (dtyping'_regular H))
+  end.

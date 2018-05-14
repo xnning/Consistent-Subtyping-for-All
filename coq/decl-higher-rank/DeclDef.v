@@ -1,7 +1,8 @@
 Set Implicit Arguments.
 
-Require Import LibLN.
+From TLC Require Import LibLN.
 Implicit Types x : var.
+
 
 (** Syntax **)
 
@@ -21,6 +22,7 @@ Inductive dtrm : Set :=
   | dtrm_absann : dtyp -> dtrm -> dtrm
   | dtrm_app    : dtrm -> dtrm -> dtrm
   | dtrm_abs    : dtrm -> dtrm
+  | dtrm_let    : dtrm -> dtrm -> dtrm                           
 .
 
 (** Opening up a type binder occuring in a type *)
@@ -47,6 +49,7 @@ Fixpoint dopen_ee_rec (k : nat) (f : dtrm) (e : dtrm) {struct e} : dtrm :=
   | dtrm_absann V e1  => dtrm_absann V (dopen_ee_rec (S k) f e1)
   | dtrm_app e1 e2    => dtrm_app (dopen_ee_rec k f e1) (dopen_ee_rec k f e2)
   | dtrm_abs e1       => dtrm_abs (dopen_ee_rec (S k) f e1)
+  | dtrm_let e1 e2    => dtrm_let (dopen_ee_rec k f e1) (dopen_ee_rec (S k) f e2)                                 
   end.
 
 Definition dopen_ee t u := dopen_ee_rec 0 u t.
@@ -92,6 +95,10 @@ Inductive dterm : dtrm -> Prop :=
       dterm e1 ->
       dterm e2 ->
       dterm (dtrm_app e1 e2)
+  | dterm_let : forall L e1 e2,
+      dterm e1 ->
+      (forall x, x \notin L -> dterm (e2 dopen_ee_var x)) ->
+      dterm (dtrm_let e1 e2)
 .
 
 (** Environment is an associative list of bindings. *)
@@ -262,6 +269,11 @@ Inductive dtyping : denv -> dtrm -> dtyp -> Prop :=
       (forall a, a \notin L ->
             dtyping (E & a ~tvar) e (A dopen_tt_var a)) ->
       dtyping E e (dtyp_all A)
+  | dtyping_let : forall L E A B e1 e2,
+      dtyping E e1 A ->
+      (forall x, x \notin L -> 
+            dtyping (E & x ~: A) (e2 dopen_ee_var x) B) ->
+      dtyping E (dtrm_let e1 e2) B
 .
 
 (** Consistent *)

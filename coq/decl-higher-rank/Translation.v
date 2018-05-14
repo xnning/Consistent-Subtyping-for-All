@@ -1,5 +1,6 @@
 Set Implicit Arguments.
-Require Import LibLN DeclDef.
+Require Import TLC.LibLN.
+Require Import DeclDef.
 Require Import PBCDef DeclInfra PBCInfra.
 Require Import DeclProp.
 
@@ -33,6 +34,11 @@ Inductive d2ptyping : denv -> dtrm -> dtyp -> ptrm -> Prop :=
       (forall a, a \notin L ->
             d2ptyping (E & a ~tvar) e (A dopen_tt_var a) (s popen_te_var a)) ->
       d2ptyping E e (dtyp_all A) (ptrm_tabs s)
+  | d2ptyping_let : forall L E A B e1 e2 s1 s2,
+      d2ptyping E e1 A s1 ->
+      (forall x, x \notin L ->
+            d2ptyping (E & x ~: A) (e2 dopen_ee_var x) B (s2 popen_ee_var x)) ->
+      d2ptyping E (dtrm_let e1 e2) B (ptrm_app (ptrm_absann A s2) s1)
 .
 
 Hint Constructors dtyping ptyping d2ptyping.
@@ -303,7 +309,7 @@ Proof.
   case_nat~.
 
   apply_fresh pcompatible_allR as x.
-  apply~ H0. rewrite~ num_of_all_open_mono. Omega.omega.
+  apply H0 with (C0:=C); auto. rewrite~ num_of_all_open_mono. Omega.omega.
   unfold dopen_tt. rewrite dtyp_len_open_tt_fvar.
   Omega.omega.
 
@@ -344,7 +350,7 @@ Proof.
   rewrite~ dopen_tt_rec_type_commu.
 
   apply pcompatible_allL.
-  apply~ IHcom.
+  apply IHcom with (C0:=C); auto.
   rewrite~ num_of_all_open_unknown. Omega.omega.
   unfold dopen_tt. rewrite~ dtyp_len_open_tt_unknown. Omega.omega.
 Qed.
@@ -437,6 +443,11 @@ Inductive d2ptyping' : denv -> dtrm -> dtyp -> ptrm -> Prop :=
       a \notin (dom E \u dfv_tt A \u pfv_te s) ->
       d2ptyping' (E & a ~tvar) e (A dopen_tt_var a) (s popen_te_var a) ->
       d2ptyping' E e (dtyp_all A) (ptrm_tabs s)
+  | d2ptyping'_let : forall x E A B e1 e2 s1 s2,
+      x \notin (dom E \u dfv_ee e2 \u pfv_ee s2) ->
+      d2ptyping' E e1 A s1 ->
+      d2ptyping' (E & x ~: A) (e2 dopen_ee_var x) B (s2 popen_ee_var x) ->
+      d2ptyping' E (dtrm_let e1 e2) B (ptrm_app (ptrm_absann A s2) s1)
 .
 
 Hint Constructors d2ptyping'.
@@ -450,6 +461,8 @@ Proof.
   apply d2ptyping'_abs with x; auto.
   pick_fresh x.
   apply d2ptyping'_gen with x; auto.
+  pick_fresh x.
+  apply d2ptyping'_let with x; auto.
 Qed.
 
 Lemma d2ptyping_subst : forall E F t T z u U f,
@@ -462,7 +475,7 @@ Proof.
   case_var*.
     binds_mid~.
     apply d2ptyping_var; autos*.
-    inversions H1.
+    inversions TEMP.
     apply~ binds_middle_eq.
     lets: dok_from_okt okt.
     lets ~ : ok_middle_inv_r H0.
@@ -506,6 +519,18 @@ Proof.
   rewrite~ concat_assoc.
   rewrite concat_assoc in H1.
   rewrite* psubst_ee_open_te_var.
+  
+  apply_fresh d2ptyping_let as x; auto.
+  specializes H0 x E (F & x ~: A) z U.
+  forwards * : H0.
+  rewrite* concat_assoc.
+  rewrite~ concat_assoc.
+  specializes H x. forwards ~ : H.
+  lets [? _]: d2ptyping_regular H1.
+  constructor~. apply dokt_push_typ_inv in H2. apply* dwft_rename_typ.
+  rewrite concat_assoc in H1.
+  rewrite* dsubst_ee_open_ee_var.
+  rewrite* psubst_ee_open_ee_var.
 Qed.
 
 Lemma psubst_ee_same: forall y f,
@@ -616,6 +641,16 @@ Proof.
   rewrite concat_assoc in H1.
   rewrite~ psubst_te_open_te_var.
   rewrite~ dsubst_tt_open_tt_var.
+
+  apply_fresh d2ptyping_let as x; auto.
+  forwards ~ : H0 x E (F & x ~: A) z.
+  rewrite~ concat_assoc.
+  rewrite map_push.
+  rewrite concat_assoc.
+  constructor~.
+  rewrite map_push in H1.
+  rewrite concat_assoc in H1.
+  rewrite~ psubst_te_open_ee_var.
 Qed.
 
 
@@ -657,6 +692,10 @@ Proof.
   forwards~ : d2ptyping_rename_tvar a IHty; simpls~.
   instantiate (TEMP := x). auto.
   auto.
+
+  apply_fresh d2ptyping_let as x; auto.
+  forwards~ : d2ptyping_rename y IHty2; simpls~.
+  rewrite <- psubst_ee_intro in H0; auto.
 Qed.
 
 Hint Constructors d2ptyping'.
@@ -699,6 +738,17 @@ Proof.
   autos*. rewrite* <- pclose_te_open.
   lets : d2ptyping'_d2ptyping H0.
   lets : d2ptyping_term H1. auto.
+
+  pick_fresh y.
+  specializes H0 y.
+  destruct H0; auto.
+  destruct IHty.
+  exists* (ptrm_app (ptrm_absann A (pclose_ee y x)) x0) .
+  apply d2ptyping'_let with y; auto.
+  assert (y \notin pfv_ee (pclose_ee y x)). apply pclose_ee_fresh.
+  autos*. rewrite* <- pclose_ee_open.
+  lets : d2ptyping'_d2ptyping H0.
+  lets : d2ptyping_term H2. auto.
 Qed.
 
 Lemma dtyping_d2ptyping: forall E S T,
@@ -710,3 +760,33 @@ Proof.
   lets: d2ptyping'_d2ptyping H.
   exists* x.
 Qed.
+
+Lemma d2ptyping'_regular : forall E e T f,
+  d2ptyping' E e T f -> dokt E /\ dterm e /\ dwft E T /\ pterm f.
+Proof.
+  introv ty. lets I: d2ptyping'_d2ptyping ty.
+  splits~.
+  apply* d2ptyping_term.
+Qed.
+
+Hint Resolve d2ptyping'_regular.
+
+Hint Extern 1 (dokt ?E) =>
+  match goal with
+  | H: d2ptyping' _ _ _ _ |- _ => apply (proj41 (d2ptyping'_regular H))
+  end.
+
+Hint Extern 1 (dterm ?E) =>
+  match goal with
+  | H: d2ptyping' _ _ _ _ |- _ => apply (proj42 (d2ptyping'_regular H))
+  end.
+
+Hint Extern 1 (dwft ?E ?t) =>
+  match goal with
+  | H: d2ptyping' _ _ _ _ |- _ => apply (proj43 (d2ptyping'_regular H))
+  end.
+
+Hint Extern 1 (pterm ?E ?t) =>
+  match goal with
+  | H: d2ptyping' _ _ _ _ |- _ => apply (proj44 (d2ptyping'_regular H))
+  end.

@@ -1,5 +1,5 @@
 Set Implicit Arguments.
-Require Import LibLN DeclDef.
+Require Import TLC.LibLN DeclDef.
 Require Import PBCDef DeclInfra.
 
 (** Computing free term variables in a term *)
@@ -290,6 +290,15 @@ Proof.
   induction t1; intros t2 k; destruct t2; simpl; intros; inversion H1;
   try solve [ f_equal*
   | do 2 try case_nat; inversions* H1; try notin_false ].
+
+  apply dopen_tt_rec_inj in H3; auto.
+  forwards~ : IHt1 H4; auto. 
+  f_equal~.
+
+  apply dopen_tt_rec_inj in H3; auto.
+  apply dopen_tt_rec_inj in H4; auto.
+  forwards~ : IHt1 H5; auto. 
+  f_equal~.
 Qed.
 
 Hint Resolve popen_ee_rec_inj.

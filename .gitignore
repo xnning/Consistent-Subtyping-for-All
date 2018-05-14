@@ -28,3 +28,4 @@ paper/upload/*
 *.blg
 *.gz
 *.loe
+*.v.d

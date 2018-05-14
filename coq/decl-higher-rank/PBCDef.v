@@ -1,6 +1,6 @@
 Set Implicit Arguments.
 
-Require Import LibLN.
+Require Import TLC.LibLN.
 Implicit Types x : var.
 Require Import DeclDef.
 

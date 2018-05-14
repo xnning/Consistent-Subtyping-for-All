@@ -193,14 +193,14 @@ tySub (TArr a b) (TArr a' b') = do
 tySub (TAll t) b = do
   (a, body) <- unbind t
   â <- freshEVar
-  modifyCtx (\c -> c |> CtxEVar â)
+  modifyCtx (\c -> c |> CtxMarker â |> CtxEVar â)
   tySub (subst a (TEVar â) body) b
-  -- modifyCtx (ctxUntil (CtxMarker â))
+  modifyCtx (ctxUntil (CtxMarker â))
 tySub a (TAll t) = do
   (b, body) <- unbind t
-  modifyCtx (\c -> c |> CtxVar b)
+  modifyCtx (|> CtxVar b)
   tySub a body
-  -- modifyCtx (ctxUntil (CtxVar b))
+  modifyCtx (ctxUntil (CtxVar b))
 -- Jeremy: Should I check if â exists in the context?
 tySub (TEVar â) (TEVar â') = instL â (TEVar â') <|> instR (TEVar â) â'
 tySub (TEVar â) a | â `notElem` freeVars a = instL â a
@@ -244,8 +244,8 @@ instL â t = getCtx >>= go
         (a, body) <- unbind s
         putCtx $ ctx |> CtxVar a
         instL â body
-        -- Just (ctx', _) <- ctxHole (CtxVar a) <$> getCtx
-        -- putCtx ctx'
+        Just (ctx', _) <- ctxHole (CtxVar a) <$> getCtx
+        putCtx ctx'
     go _ =
       throwError $
       "instL: failed to instantiate " ++ pprint (TEVar â) ++ " to " ++ pprint t
@@ -279,10 +279,10 @@ instR t â = getCtx >>= go
       | TAll s <- t = do
         (a, body) <- unbind s
         â' <- freshEVar
-        putCtx $ ctx |> CtxEVar â'
+        putCtx $ ctx |> CtxMarker â' |> CtxEVar â'
         instR (subst a (TEVar â') body) â
-        -- Just (ctx', _) <- ctxHole (CtxMarker â') <$> getCtx
-        -- putCtx ctx'
+        Just (ctx', _) <- ctxHole (CtxMarker â') <$> getCtx
+        putCtx ctx'
     go _ =
       throwError $
       "instR: failed to instantiate " ++ pprint (TEVar â) ++ " to " ++ pprint t
@@ -296,18 +296,20 @@ check EUnit TUnit = return ()
 check (LitV _) TNum = return ()
 check e (TAll t) = do
   (a, body) <- unbind t
-  modifyCtx (\c -> c |> CtxVar a)
+  modifyCtx (|> CtxVar a)
   check e body
-  -- modifyCtx (ctxUntil (CtxVar a))
+  modifyCtx (ctxUntil (CtxVar a))
 check (ELam e) (TArr a b) = do
   (x, body) <- unbind e
   modifyCtx (|> CtxAssump x a)
   check body b
+  modifyCtx (ctxUntil (CtxAssump x a))
 check (ELet b) t = do
   ((x, Embed e1), e2) <- unbind b
   t1 <- infer e1
   modifyCtx (\c -> c |> CtxAssump x t1)
   check e2 t
+  modifyCtx (ctxUntil (CtxAssump x t1))
 check e b = do
   a <- infer e
   ctx <- getCtx
@@ -333,15 +335,19 @@ infer (EAnn e a) = checkTypeWF a >> check e a >> return a
 infer (ELam e) = do
   (x, body) <- unbind e
   â <- freshEVar
-  modifyCtx (\c -> c |> CtxEVar â |> CtxAssump x (TEVar â))
-  rt <- infer body
-  return $ TArr (TEVar â) rt
+  â' <- freshEVar
+  modifyCtx (\c -> c |> CtxEVar â |> CtxEVar â' |> CtxAssump x (TEVar â))
+  check body (TEVar â')
+  modifyCtx (ctxUntil (CtxAssump x (TEVar â)))
+  return $ TArr (TEVar â) (TEVar â')
 infer (ELamA e) = do
   ((x, Embed t), body) <- unbind e
   checkTypeWF t
-  modifyCtx (\c -> c |> CtxAssump x t)
-  rt <- infer body
-  return $ TArr t rt
+  â <- freshEVar
+  modifyCtx (\c -> c |> CtxEVar â |> CtxAssump x t)
+  check body (TEVar â)
+  modifyCtx (ctxUntil (CtxAssump x t))
+  return $ TArr t (TEVar â)
 infer (EApp e1 e2) = do
   a <- infer e1
   ctx <- getCtx
@@ -354,8 +360,11 @@ infer (EApp e1 e2) = do
 infer (ELet b) = do
   ((x, Embed e1), e2) <- unbind b
   t <- infer e1
-  modifyCtx (\c -> c |> CtxAssump x t)
-  infer e2
+  â <- freshEVar
+  modifyCtx (\c -> c |> CtxEVar â |> CtxAssump x t)
+  check e2 (TEVar â)
+  modifyCtx (ctxUntil (CtxAssump x t))
+  return $ TEVar â
 infer ETrue = return TBool
 infer EFalse = return TBool
 

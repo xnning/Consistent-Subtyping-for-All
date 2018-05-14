@@ -1,12 +1,13 @@
 Set Implicit Arguments.
 
-Require Import LibLN.
+From TLC Require Import LibLN.
 Implicit Types x : var.
 Require Import DeclDef.
 Require Import DeclInfra.
 Require Import DeclProp.
 Require Import DeclTyping.
 Require Import DeclSub.
+Require Import DeclEnvSub.
 
 Inductive mdtyping : denv -> dtrm -> dtyp -> Prop :=
   | mdtyping_var : forall E x T,
@@ -43,6 +44,11 @@ Inductive mdtyping : denv -> dtrm -> dtyp -> Prop :=
       (forall a, a \notin L ->
             mdtyping (E & a ~tvar) e (A dopen_tt_var a)) ->
       mdtyping E e (dtyp_all A)
+  | mdtyping_let : forall L E A B e1 e2,
+      mdtyping E e1 A ->
+      (forall x, x \notin L -> 
+            mdtyping (E & x ~: A) (e2 dopen_ee_var x) B) ->
+      mdtyping E (dtrm_let e1 e2) B
 .
 
 Lemma mdtyping_regular : forall E e T,
@@ -91,6 +97,13 @@ Proof.
     pick_fresh y. specializes H0 y. destructs~ H0.
     apply_fresh dwft_all as y.
       specializes H0 y. destructs~ H0.
+
+  destructs IHmdtyping.
+  splits~.
+    apply_fresh dterm_let as x; auto.
+      specializes H1 x. destructs~ H1.
+    pick_fresh y. specializes H1 y. destructs~ H1.
+      apply* dwft_strengthen_push.
 Qed.
 
 (** Automation *)
@@ -144,6 +157,8 @@ Proof.
   apply_fresh mdtyping_abs as x; auto.
 
   apply_fresh mdtyping_gen as x; auto.
+
+  apply_fresh mdtyping_let as x; auto. auto.
 Qed.
 
 (** Sound *)
@@ -189,7 +204,7 @@ Proof.
   destruct IHty1 as (B1 & [? ?]).
   destruct IHty2 as (B2 & [? ?]).
   apply dsub_unknown_r in H0.
-  apply unknonw_like_match with (E:=E) in H0.
+  apply unknown_like_match with (E:=E) in H0.
   destruct H0 as (B & [? ?]).
   exists B. splits~.
   apply dtyping_app with (A:=B1) (A1:=dtyp_unknown) (A3:=B2); auto.
@@ -233,4 +248,18 @@ Proof.
   apply dsub_rename with x; auto.
   rewrite~ <- dclose_tt_open_var.
   lets~ [_ [_ ?]]: dtyping_regular H1.
+
+  forwards~ (C1 & [I1 I2]): IHty. clear IHty.
+  pick_fresh x.
+  forwards~ (C2 & [I3 I4]): H0 x. clear H0.
+  assert (I5 : dsub (E & x ~:A) C1 A).
+    apply~ dsub_push.
+  lets (C3 & [I6 I7]): dtyping_bind_strengthen I3 I5.
+  exists C3. splits~.
+  apply_fresh dtyping_let as y; auto.
+  exact I1.
+  apply dtyping_rename with x; auto.
+  apply dsub_strengthen_typ_push in I7.
+  apply dsub_strengthen_typ_push in I4.
+  apply dsub_trans with C2; eauto.
 Qed.

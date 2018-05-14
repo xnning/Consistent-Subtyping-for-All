@@ -1,1 +1,15 @@
--R ../tlc TLC
+-R . Top
+
+DeclDef.v
+DeclInfra.v
+DeclProp.v
+PBCDef.v
+PBCInfra.v
+PBCProp.v
+Translation.v
+DeclSub.v
+DeclTyping.v
+DeclEnvSub.v
+OLDef.v
+Criteria.v
+MoreDeclDef.v

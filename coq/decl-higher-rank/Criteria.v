@@ -1,104 +1,11 @@
-Require Import LibLN.
+From TLC Require Import LibLN.
 Require Import DeclDef DeclInfra DeclProp.
 Require Import Translation.
 Require Import PBCDef PBCInfra PBCProp.
-Require Import DeclTyping DeclSub.
+Require Import DeclTyping DeclSub DeclEnvSub.
+Require Import OLDef.
 
-Inductive otyping : denv -> dtrm -> dtyp -> Prop :=
-  | otyping_var : forall E x T,
-      denv_static E ->
-      binds x (dbind_typ T) E ->
-      otyping E (dtrm_fvar x) T
-  | otyping_nat : forall E i,
-      denv_static E ->
-      otyping E (dtrm_nat i) (dtyp_nat)
-  | otyping_absann : forall L E A B e,
-      dwft empty A ->
-      (forall x, x \notin L ->
-            otyping (E & x ~: A) (e dopen_ee_var x) B) ->
-      otyping E (dtrm_absann A e) (dtyp_arrow A B)
-  | otyping_abs : forall L E A B e,
-      dtyp_mono A ->
-      (forall x, x \notin L ->
-            otyping (E & x ~: A) (e dopen_ee_var x) B) ->
-      otyping E (dtrm_abs e) (dtyp_arrow A B)
-  | otyping_app : forall E e1 e2 A1 A2,
-      otyping E e1 (dtyp_arrow A1 A2) ->
-      otyping E e2 A1 ->
-      otyping E (dtrm_app e1 e2) A2
-  | otyping_sub : forall E e A B,
-      otyping E e A ->
-      dsub E A B ->
-      otyping E e B
-  | otyping_gen : forall L E A e,
-      (forall a, a \notin L ->
-            otyping (E & a ~tvar) e (A dopen_tt_var a)) ->
-      otyping E e (dtyp_all A)
-.
-
-Lemma otyping_regular : forall E e T,
-    otyping E e T ->
-    denv_static E /\ dterm_static e /\ dtyp_static T /\ dwft E T.
-Proof.
-  induction 1; try(solve[auto;splits~]).
-  splits~. apply* denv_static_dtyp.
-  apply* dwft_from_env_has_typ.
-  apply* denv_static_dokt.
-
-  splits~.
-  forwards ~ : denv_static_dokt H.
-
-  assert (sa: dtyp_static A).
-  pick_fresh y. specializes H1 y. destructs~ H1.
-  apply* denv_static_push_inv_dtyp.
-  splits~.
-    pick_fresh y. specializes H1 y. destructs~ H1.
-      apply* denv_static_push_inv.
-    apply_fresh dterm_static_absann as y; auto.
-      specializes H1 y. destructs~ H1.
-    apply~ dtyp_static_arrow.
-      pick_fresh y. specializes H1 y. destructs~ H1.
-    pick_fresh y. specializes H1 y. destructs~ H1.
-      apply denv_static_dokt in H1.
-      constructor~.
-      apply* dokt_push_typ_inv.
-      apply* dwft_strengthen_push.
-
-  assert (sa: dtyp_static A).
-    apply~ dtyp_mono_static.
-  splits~.
-    pick_fresh y. specializes H1 y. destructs~ H1.
-      apply* denv_static_push_inv.
-    apply_fresh dterm_static_abs as y; auto.
-      specializes H1 y. destructs~ H1.
-    apply~ dtyp_static_arrow.
-      pick_fresh y. specializes H1 y. destructs~ H1.
-    pick_fresh y. specializes H1 y. destructs~ H1.
-      apply denv_static_dokt in H1.
-      constructor~.
-      apply* dokt_push_typ_inv.
-      apply* dwft_strengthen_push.
-
-  destruct IHotyping1 as [? [? [? ?]]].
-  destruct IHotyping2 as [? [? [? ?]]]. splits~.
-  inversions~ H3.
-  inversions~ H4.
-
-  destruct IHotyping as [? [? [? ?]]].
-  splits~.
-  apply dsub_static_l with E A; auto.
-
-  splits~.
-    pick_fresh y. specializes H0 y. destructs~ H0.
-      apply* denv_static_push_inv.
-    pick_fresh y. specializes H0 y. destructs~ H0.
-    apply_fresh dtyp_static_all as y.
-      specializes H0 y. destructs~ H0.
-    apply_fresh dwft_all as y.
-      specializes H0 y. destructs~ H0.
-Qed.
-
-(** Conservative Extension *)
+(** * Conservative Extension *)
 
 Hint Constructors dtyping otyping.
 Hint Resolve denv_static_dokt otyping_regular.
@@ -140,7 +47,7 @@ Proof.
   assert (dwft E C).
   apply_empty~ dwft_strengthen_typ.
   assert (y \notin dfv_tt C).
-  apply (dwft_notin_env H5); auto.
+  apply (dwft_notin_env H6); auto.
   auto.
   lets ~ : dtyping'_dtyping H4.
   exists ~ (dtyp_arrow A C). splits~. constructor~.
@@ -166,7 +73,7 @@ Proof.
   assert (dwft E C).
   apply_empty~ dwft_strengthen_typ.
   assert (y \notin dfv_tt C).
-  apply (dwft_notin_env H5); auto.
+  apply (dwft_notin_env H6); auto.
   auto.
   lets ~ : dtyping'_dtyping H4.
   exists ~ (dtyp_arrow A C). splits~. constructor~.
@@ -215,46 +122,23 @@ Proof.
   rewrite~ <- dclose_tt_open_var.
   apply~ dsub_dsub'.
   lets~ [? [? _]]: dsub_regular H3.
-Qed.
 
-Lemma dmatch_static_sub : forall E A A1 A2,
-    dmatch E A A1 A2 ->
-    dwft E A ->
-    dokt E ->
-    dtyp_static A ->
-    dsub E A (dtyp_arrow A1 A2).
-Proof.
-  introv mat wft okt st. inductions mat; autos.
-  apply dsub_allL with tau; auto.
-  apply~ IHmat.
-  apply~ dwft_open.
-  inversions st.
-  pick_fresh x. specialize (H2 x).
-  apply dtyp_static_open with (dtyp_fvar x); auto.
-  apply~ dtyp_mono_static.
-
-  inversion st.
-Qed.
-
-Lemma dconsub_static_sub: forall E A B,
-    dconsub E A B ->
-    dtyp_static A ->
-    dtyp_static B ->
-    dsub E A B.
-Proof.
-  introv sub ta tb.
-  inductions sub; auto; try solve [inversions~ ta];
-   try solve [inversions~ tb].
-  inversions ta. inversions tb. constructor~.
-
-  apply dsub_allL with tau; auto.
-  apply~ IHsub.
-  inversions ta. pick_fresh y. forwards~ : H2 y.
-  apply dtyp_static_open with (dtyp_fvar y); auto.
-  apply~ dtyp_mono_static.
-
-  inversion~ tb.
-  apply_fresh dsub_allR as x; auto.
+  inversions Htm.
+  apply otyping_regular in Ht. destructs Ht.
+  forwards ~ : IHHt. destruct H7 as (A0 & [I1 I2]).
+  pick_fresh y.
+  forwards ~ (C & [? ?]) : H0 y. clear H0 IHHt.
+  assert (I3 : dsub (E & y ~: A) A0 A).
+    apply~ dsub_push.
+  lets ~ (T & [? ?]) : dtyping_bind_strengthen H7 I3.
+  exists T. splits~.
+  apply dtyping'_dtyping.
+  apply dtyping'_let with y A0; auto.
+  apply~ dtyping_dtyping'.
+  apply~ dtyping_dtyping'.
+  apply dsub_strengthen_typ_push in H9.
+  apply dsub_strengthen_typ_push in H8.
+  lets~ : dsub_trans H9 H8.
 Qed.
 
 Lemma conserv_extension_b: forall E e T,
@@ -307,9 +191,17 @@ Proof.
 
   inversions Htyp.
   apply_fresh otyping_gen as x; auto.
+
+  inversions Htm.
+  apply_fresh otyping_let as x; auto.
+  apply~ IHHt.
+  apply* dtyping_static_preserve.
+  apply~ H0.
+  constructor~.
+  apply* dtyping_static_preserve.
 Qed.
 
-(** Monotonicity w.r.t. precision *)
+(** * Monotonicity w.r.t. precision *)
 
 Lemma monotonicity_precision': forall E F e s A,
     dtyping E e A ->
@@ -348,13 +240,6 @@ Proof.
   exists (dtyp_arrow A1 C). split~.
   apply dtyping'_absann with y; auto.
   apply dwft_dtyp_less_precise with A; auto.
-  assert (dwft F C).
-    lets : dtyping'_dtyping H2.
-    lets [_ [_ ?]] : dtyping_regular H4.
-    apply_empty* dwft_strengthen_typ.
-  assert (y \notin dfv_tt C).
-    apply (dwft_notin_env H4); auto.
-  auto.
 
   (* app *)
   inversions less_tm.
@@ -406,7 +291,7 @@ Proof.
   auto.
   rewrite~ <- dclose_tt_open_var.
     lets : dtyping'_dtyping H1.
-    lets [_ [_ ?]] : dtyping_regular H3.
+    lets [_ [_ ?]] : dtyping_regular H4.
     auto.
     apply dtyp_less_precise'_precise.
     apply dtyp_less_precise'_all with y.
@@ -418,6 +303,18 @@ Proof.
     lets : dtyping'_dtyping H1.
     lets [_ [_ ?]] : dtyping_regular H3.
     auto.
+
+  (* let *)
+  inversions~ less_tm.
+  pick_fresh y.
+  forwards ~ (D & [I1 I2]) : IHty less_env H4.
+  assert (I3: denv_less_precise (F & y ~: D) (E & y ~: A)) by constructor~.
+  assert (I4: dterm_less_precise (e4 dopen_ee_var y) (e2 dopen_ee_var y))
+         by auto.
+  forwards ~ (C & [? ?]) : H0 I3 I4.
+  clear H0 IHty.
+  exists C. split~.
+  apply dtyping'_let with y D; auto.
 Qed.
 
 Lemma monotonicity_precision: forall E F e s A,
@@ -432,7 +329,7 @@ Proof.
   apply* dtyping'_dtyping.
 Qed.
 
-(** Monotonicity of cast insertion *)
+(** * Monotonicity of cast insertion *)
 
 Lemma monotonicity_cast_insertion': forall E F e1 e2 s1 A,
     d2ptyping E e1 A s1 ->
@@ -595,6 +492,34 @@ Proof.
   rewrite~ <- pclose_te_open.
   lets ~ : d2ptyping'_d2ptyping H.
   lets ~ : d2ptyping_term H4.
+
+  (* let *)
+  inversions~ less_tm.
+  pick_fresh y.
+  forwards~ : H5 y. clear H5.
+  forwards ~ (s4 & C0 & [I1 [I2 I3]]) : IHty1 less_env H4.
+  forwards~ (s3 & B0 & [I4 [I5 I6]]): H0 y (F & y ~: C0) H1.
+  constructor~.
+  apply~ dtyp_less_precise'_precise.
+  clear IHty1 H0.
+  exists (ptrm_app (ptrm_absann C0 (pclose_ee y s3)) (s4)) B0.
+  splits~.
+  apply d2ptyping'_let with y; auto.
+  assert (y \notin pfv_ee (pclose_ee y s3)).
+    apply pclose_ee_fresh.
+  auto.
+  rewrite~ <- pclose_ee_open.
+  lets ~ : d2ptyping'_regular I4. destructs~ H0.
+  apply~ pterm_less_precise_app.
+  apply pterm_less_precise_absann with y; auto.
+  apply~ dtyp_less_precise'_precise.
+  assert (y \notin pfv_ee (pclose_ee y s3)).
+    apply pclose_ee_fresh.
+  assert (y \notin dfv_tt C0).
+    apply dwft_notin_env with F; auto.
+  auto.
+  rewrite~ <- pclose_ee_open.
+  lets ~ : d2ptyping'_regular I4. destructs~ H0.
 Qed.
 
 Lemma monotonicity_cast_insertion: forall E F e1 e2 s1 A,

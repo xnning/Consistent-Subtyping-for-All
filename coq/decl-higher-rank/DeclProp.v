@@ -1,5 +1,6 @@
 Set Implicit Arguments.
-Require Import LibLN DeclDef.
+Require Import TLC.LibLN.
+Require Import DeclDef.
 Require Import DeclInfra.
 Require Import DeclSub.
 
@@ -168,6 +169,32 @@ Proof.
   rewrite~ concat_assoc.
 Qed.
 
+Lemma dsub_strengthen_typ_push : forall E x v A1 A2,
+    dsub (E & x ~: v) A1 A2 ->
+    dsub E A1 A2.
+Proof.
+  introv wf1.
+  apply_empty* dsub_strengthen_typ.
+Qed.
+
+Lemma dsub_all_r: forall E B A tau,
+    dsub E B (dtyp_all A) ->
+    dtyp_mono tau ->
+    dwft E tau ->
+    dsub E B (dopen_tt A tau) .
+Proof.
+  introv sub mn wf.
+
+  inductions sub;
+    try( solve [inversion mat]).
+  apply dsub_allL with tau0; auto.
+  pick_fresh x.
+  forwards ~ : H x. clear H H0.
+  forwards ~ : dsub_remove_push H1 wf mn.
+  rewrite~ <- dsubst_tt_intro in H.
+  rewrite dsubst_tt_fresh in H; auto.
+Qed.
+
 Lemma dsub_trans_help : forall m n E A B C n1 n2,
     num_of_all B < m ->
     n1 + n2 < n ->
@@ -214,8 +241,7 @@ Proof.
   inductions sub32; intros; subst~.
       (* alll x alll *)
       apply dsub_allL with tau0; auto.
-      forwards ~ : IHsub32 IHn.
-      Omega.omega.
+      forwards ~ : IHsub32 IHn; try Omega.omega; auto.
       (* allr x alll *)
       clear H2.
       pick_fresh y. forwards ~ : H1 y. clear H1.
@@ -255,7 +281,7 @@ Lemma dsub_match_arrow: forall E B A1 A2,
 Proof.
   introv sub. inductions sub; simpls~.
   exists ~ A0 A3. splits~. constructor~.
-  destruct IHsub as (C1 & C2 & [? ?]).
+  destruct (IHsub A1 A2) as (C1 & C2 & [? ?]); auto.
   exists~ C1 C2. splits~.
   apply dmatch_all with tau; auto.
 Qed.
@@ -449,7 +475,7 @@ Proof.
   right. splits~. 
 Qed.
 
-Lemma unknonw_like_match: forall E A,
+Lemma unknown_like_match: forall E A,
     ok E ->
     dtyp_unknown_like A ->
     exists B,
@@ -464,6 +490,21 @@ Proof.
   rewrite~ dopen_unknown_like_fresh.
 Qed.
 
+Lemma dmatch_sub : forall E A A1 A2 B,
+    dmatch E A A1 A2 ->
+    dsub E B A ->
+    exists B1 B2, dmatch E B B1 B2 /\ dsub E A1 B1 /\ dsub E B2 A2.
+Proof.
+  introv mat sub.
+  inductions mat.
+  forwards ~ : dsub_all_r sub H H0.
+  forwards (I1 & I2 & [I3 I4]) : dsub_match_arrow sub.
+  exists I1 I2. inversions I4. splits~.
+  forwards ~ I : dsub_unknown_r sub.
+  forwards ~ (C & [I1 I2 ]) : unknown_like_match E I.
+  exists dtyp_unknown C. splits~. 
+  apply~ dtyp_unknown_like_dsub_l.
+Qed.  
 
 (** * CONSIST SUBTYPING *)
 
@@ -752,7 +793,7 @@ Proof.
   apply dconsub_prop'2 with (n1:= n1) (n2:=n2) (C:= C) (D:=D) (m := S (num_of_all C + num_of_all D)) (n := S (n1 + n2)); auto.
 Qed.
 
-Lemma dconsub_dsub: forall E A B C,
+Lemma dconsub_dsub_r: forall E A B C,
     dconsub E A B ->
     dsub E B C ->
     dconsub E A C.
@@ -762,6 +803,18 @@ Proof.
   destruct csub as (D1 & D2 & [? [? ?]]).
   apply dconsub_prop2 with D1 D2; auto.
   apply dsub_trans with B; auto.
+Qed.
+
+Lemma dconsub_dsub_l: forall E A B C,
+    dconsub E A B ->
+    dsub E C A ->
+    dconsub E C B.
+Proof.
+  introv csub sub.
+  apply dconsub_prop1 in csub.
+  destruct csub as (D1 & D2 & [? [? ?]]).
+  apply dconsub_prop2 with D1 D2; auto.
+  apply dsub_trans with A; auto.
 Qed.
 
 (** * STATIC *)
@@ -796,6 +849,10 @@ Inductive dterm_static : dtrm -> Prop :=
       dterm_static e1 ->
       dterm_static e2 ->
       dterm_static (dtrm_app e1 e2)
+  | dterm_static_let : forall L e1 e2,
+      dterm_static e1 ->
+      (forall x, x \notin L -> dterm_static (e2 dopen_ee_var x)) ->
+      dterm_static (dtrm_let e1 e2)
 .
 
 Inductive denv_static : denv -> Prop :=
@@ -837,6 +894,7 @@ Proof.
   apply~ H1.
   apply_fresh dterm_abs as x.
   apply~ H0.
+  apply_fresh dterm_let as x; auto.
 Qed.
 
 Lemma denv_static_dokt: forall e,
@@ -913,7 +971,7 @@ Proof.
   forwards ~ : H0 y H1.
   apply~ dconsist_open.
   f_equal~.
-  apply* dopen_tt_rec_inj.
+  apply* dopen_tt_rec_inj; auto.
 Qed.
 
 Lemma dtyp_mono_static : forall A,
@@ -1024,6 +1082,11 @@ Proof.
 
   apply_fresh dtyp_static_all as x.
   apply~ H0.
+
+  inversions Htm.
+  forwards ~ : IHHty.
+  pick_fresh x.
+  forwards ~ : H0 x.
 Qed.
 
 Lemma dsub_static: forall E A B,
@@ -1095,6 +1158,26 @@ Proof.
   apply_fresh dsub_allR as x; auto.
 Qed.
 
+Lemma dmatch_static_sub : forall E A A1 A2,
+    dmatch E A A1 A2 ->
+    dwft E A ->
+    dokt E ->
+    dtyp_static A ->
+    dsub E A (dtyp_arrow A1 A2).
+Proof.
+  introv mat wft okt st. inductions mat; autos.
+  apply dsub_allL with tau; auto.
+  apply~ IHmat.
+  apply~ dwft_open.
+  inversions st.
+  pick_fresh x. specialize (H2 x).
+  apply dtyp_static_open with (dtyp_fvar x); auto.
+  apply~ dtyp_mono_static.
+
+  inversion st.
+Qed.
+
+
 (** * LESS PRECISE *)
 
 Inductive dtyp_less_precise : dtyp -> dtyp -> Prop :=
@@ -1153,6 +1236,11 @@ Inductive dterm_less_precise : dtrm -> dtrm -> Prop :=
       dterm_less_precise (e1 dopen_ee_var x)
                          (e2 dopen_ee_var x)) ->
       dterm_less_precise (dtrm_abs e1) (dtrm_abs e2)
+  | dterm_less_precise_let : forall L e1 e2 e3 e4,
+      dterm_less_precise e1 e2 ->
+      (forall x, x \notin L ->
+            dterm_less_precise (e3 dopen_ee_var x) (e4 dopen_ee_var x)) ->
+      dterm_less_precise (dtrm_let e1 e3) (dtrm_let e2 e4)
 .
 
 Inductive dterm_less_precise' : dtrm -> dtrm -> Prop :=
@@ -1175,6 +1263,11 @@ Inductive dterm_less_precise' : dtrm -> dtrm -> Prop :=
       dterm_less_precise' e1 e2 ->
       dterm_less_precise' e3 e4 ->
       dterm_less_precise' (dtrm_app e1 e3) (dtrm_app e2 e4)
+  | dterm_less_precise'_let : forall x e1 e2 e3 e4,
+      x  \notin (dfv_ee e1 \u dfv_ee e2 \u dfv_ee e3 \u dfv_ee e4) ->
+      dterm_less_precise' e1 e2 ->
+      dterm_less_precise' (e3 dopen_ee_var x) (e4 dopen_ee_var x) ->
+      dterm_less_precise' (dtrm_let e1 e3) (dtrm_let e2 e4)
 .
 
 Inductive denv_less_precise : denv -> denv -> Prop :=
@@ -1215,6 +1308,7 @@ Proof.
   introv dm. inductions dm; simpls~.
   apply_fresh dterm_less_precise_absann as x; auto.
   apply_fresh dterm_less_precise_abs as x; auto.
+  apply_fresh dterm_less_precise_let as x; auto.
 Qed.
 
 Lemma dtyp_less_precise_dtype: forall A1 A2,
@@ -1259,6 +1353,12 @@ Proof.
   apply_fresh dterm_abs as x.
   forwards ~ : H0 x.
   destruct ~ H1.
+
+  destruct IHdm. split~.
+  apply_fresh dterm_let as x; auto.
+  forwards ~ : H0 x. destruct~ H3.
+  apply_fresh dterm_let as x; auto.
+  forwards ~ : H0 x. destruct~ H3.
 Qed.
 
 Lemma dterm_less_precise_precise' : forall e1 e2,
@@ -1268,9 +1368,11 @@ Proof.
   introv dm.
   inductions dm; auto.
   pick_fresh y.
-  apply~ dterm_less_precise'_absann.
+  apply dterm_less_precise'_absann with y; auto.
   pick_fresh y.
-  apply~ dterm_less_precise'_abs.
+  apply dterm_less_precise'_abs with y; auto.
+  pick_fresh y.
+  apply dterm_less_precise'_let with y; auto.
 Qed.
 
 Lemma dterm_less_precise_subst : forall t s u z,
@@ -1291,6 +1393,11 @@ Proof.
   apply* dterm_less_precise_app.
 
   apply_fresh dterm_less_precise_abs as x; auto.
+  specializes H0 x. forwards ~ : H0.
+  rewrite* dsubst_ee_open_ee_var.
+  rewrite* dsubst_ee_open_ee_var.
+
+  apply_fresh dterm_less_precise_let as x; auto.
   specializes H0 x. forwards ~ : H0.
   rewrite* dsubst_ee_open_ee_var.
   rewrite* dsubst_ee_open_ee_var.
@@ -1319,6 +1426,8 @@ Proof.
   apply_fresh dterm_less_precise_absann as y; auto.
   apply* dterm_less_precise_rename.
   apply_fresh dterm_less_precise_abs as y; auto.
+  apply* dterm_less_precise_rename.
+  apply_fresh dterm_less_precise_let as y; auto.
   apply* dterm_less_precise_rename.
 Qed.
 
@@ -1432,11 +1541,11 @@ Proof.
   case_nat~. inversions~ x1.
   destruct B; simpls~; try(solve[inversions~ x]).
   case_nat~. inversions~ x.
-  false~ notin_same.
+  false* notin_same v.
   inversions~ x1.
   destruct B; simpls~; try(solve[inversions~ x]).
   case_nat~. inversions~ x.
-  false~ notin_same.
+  false~ notin_same y.
 
   destruct A; simpls~; try(solve[inversions~ x0]).
   destruct B; simpls~; try(solve[inversions~ x]).
@@ -1448,8 +1557,8 @@ Proof.
   destruct B; simpls~; try(solve[inversions~ x]).
   inversions~ x.
   constructor~.
-  apply~ IHmat1. Omega.omega.
-  apply~ IHmat2. Omega.omega.
+  apply~ IHmat1; auto. Omega.omega. 
+  apply~ IHmat2; auto. Omega.omega.
   case_nat~.
   case_nat~.
 
@@ -1670,7 +1779,7 @@ Lemma denv_less_precise_binds_var : forall x A B E F,
 Proof.
   introv env be bf.
   inductions env; auto.
-  forwards : binds_func be bf. inversions H0.
+  forwards : binds_functional be bf. inversions H0.
   apply~ dtyp_less_precise_refl.
   apply dwft_dtype with E; auto.
   apply* dwft_from_env_has_typ.
@@ -2266,12 +2375,10 @@ Proof.
             apply dwft_ok in H3. auto.
         apply dtyp_less_precise'_precise.
           apply dtyp_less_precise'_all with x; auto.
-          apply notin_union; splits~. apply~ dclose_tt_fresh.
           rewrite~ <- dclose_tt_open_var.
           apply* dtyp_less_precise_precise'.
         apply dtyp_less_precise'_precise.
           apply dtyp_less_precise'_all with x; auto.
-          apply notin_union; splits~. apply~ dclose_tt_fresh.
           rewrite~ <- dclose_tt_open_var.
           apply* dtyp_less_precise_precise'.
 Qed.
@@ -2368,3 +2475,4 @@ Proof.
   apply_fresh dtyp_less_precise_all as x; auto.
   apply* dwft_push.
 Qed.
+

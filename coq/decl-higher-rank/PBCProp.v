@@ -1,5 +1,5 @@
 Set Implicit Arguments.
-Require Import LibLN DeclDef DeclInfra.
+Require Import TLC.LibLN DeclDef DeclInfra.
 Require Import PBCDef PBCInfra DeclProp.
 
 Inductive pterm_less_precise : denv -> denv -> ptrm -> ptrm -> Prop :=

@@ -1,5 +1,9 @@
 Set Implicit Arguments.
-Require Import LibLN DeclDef.
+
+From TLC Require Import LibLN.
+
+Require Import DeclDef.
+
 
 (** Computing free term variables in a term *)
 
@@ -11,6 +15,7 @@ Fixpoint dfv_ee (e : dtrm) {struct e} : vars :=
   | dtrm_absann V e1  => (dfv_ee e1)
   | dtrm_abs e1       => (dfv_ee e1)
   | dtrm_app e1 e2    => (dfv_ee e1) \u (dfv_ee e2)
+  | dtrm_let e1 e2    => (dfv_ee e1) \u (dfv_ee e2)
   end.
 
 (** Substitution for free term variables in terms. *)
@@ -23,6 +28,7 @@ Fixpoint dsubst_ee (z : var) (u : dtrm) (e : dtrm) {struct e} : dtrm :=
   | dtrm_absann V e1  => dtrm_absann V (dsubst_ee z u e1)
   | dtrm_abs e1       => dtrm_abs (dsubst_ee z u e1)
   | dtrm_app e1 e2    => dtrm_app (dsubst_ee z u e1) (dsubst_ee z u e2)
+  | dtrm_let e1 e2    => dtrm_let (dsubst_ee z u e1) (dsubst_ee z u e2)
   end.
 
 (** Computing free type variables in a type *)
@@ -235,6 +241,8 @@ Proof.
    apply* (@dopen_ee_rec_term_core e1 0 (dtrm_fvar x)).
   unfolds dopen_ee. pick_fresh x.
    apply* (@dopen_ee_rec_term_core e1 0 (dtrm_fvar x)).
+  unfolds dopen_ee. pick_fresh x.
+   apply* (@dopen_ee_rec_term_core e2 0 (dtrm_fvar x)).
 Qed.
 
 (** Substitution for a fresh name is identity. *)
@@ -287,6 +295,7 @@ Proof.
   case_var*.
   apply_fresh* dterm_absann as y. rewrite* dsubst_ee_open_ee_var.
   apply_fresh* dterm_abs as y. rewrite* dsubst_ee_open_ee_var.
+  apply_fresh* dterm_let as y. rewrite* dsubst_ee_open_ee_var.
 Qed.
 
 Lemma dterm_subst : forall t z u,
@@ -843,6 +852,7 @@ Fixpoint dclose_ee_rec (k : nat) (z : var) (t : dtrm) {struct t} : dtrm :=
   | dtrm_absann t1 t2  => dtrm_absann t1 (dclose_ee_rec (S k) z t2)
   | dtrm_abs t         => dtrm_abs (dclose_ee_rec (S k) z t)
   | dtrm_app t1 t2     => dtrm_app (dclose_ee_rec k z t1) (dclose_ee_rec k z t2)
+  | dtrm_let t1 t2     => dtrm_let (dclose_ee_rec k z t1) (dclose_ee_rec (S k) z t2)
   end.
 
 Definition dclose_ee z t := dclose_ee_rec 0 z t.
@@ -886,6 +896,10 @@ Proof.
     destruct (var_fresh (L \u dfv_ee t)) as [y Fr] end.
   apply* (@dopen_ee_rec_inj y).
   unfolds dopen_ee. rewrite* dclose_ee_rec_open.
+  let L := gather_vars in match goal with |- _ = ?t =>
+    destruct (var_fresh (L \u dfv_ee t)) as [y Fr] end.
+  apply* (@dopen_ee_rec_inj y).
+  unfolds dopen_ee. rewrite* dclose_ee_rec_open.
 Qed.
 
 (** Abstracting a type name out of a type *)
@@ -916,7 +930,7 @@ Qed.
 
 (** Close var removes fresh var *)
 
-Lemma dclose_tt_fresh : forall x t k,
+Lemma dclose_tt_fresh_rec : forall x t k,
   x \notin dfv_tt (dclose_tt_rec k x t).
 Proof.
   introv. unfold dclose_tt. gen k.
@@ -924,7 +938,14 @@ Proof.
   case_var; simple*.
 Qed.
 
-Hint Resolve dclose_tt_fresh.
+Lemma dclose_tt_fresh : forall x t,
+  x \notin dfv_tt (dclose_tt x t).
+Proof.
+  unfold dclose_tt.  introv.
+  apply dclose_tt_fresh_rec.
+Qed.
+
+Hint Resolve dclose_tt_fresh_rec dclose_tt_fresh.
 
 (** Close var is the right inverse of open_var *)
 
@@ -1222,6 +1243,14 @@ Proof.
     pick_fresh y. specializes H0 y. destructs~ H0.
     apply_fresh dwft_all as y.
       specializes H0 y. destructs~ H0.
+
+  destructs IHdtyping.
+  splits~.
+    apply_fresh dterm_let as y.
+    pick_fresh y. specializes H1 y. destructs~ H1.
+    specializes H1 y. destructs~ H1.
+    pick_fresh y. specializes H1 y. destructs~ H1.
+      apply* dwft_strengthen_push.
 Qed.
 
 (** Automation *)
