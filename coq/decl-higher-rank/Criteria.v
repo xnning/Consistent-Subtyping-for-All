@@ -337,7 +337,7 @@ Lemma monotonicity_cast_insertion': forall E F e1 e2 s1 A,
     dterm_less_precise e2 e1 ->
     exists s2 B, d2ptyping' F e2 B s2 /\
     dtyp_less_precise' B A /\
-    pterm_less_precise F E s2 s1.
+    pterm_less_precise s2 s1.
 Proof.
   introv ty1. gen F e2.
   inductions ty1; introv less_env less_tm.
@@ -356,9 +356,6 @@ Proof.
   inversions less_tm.
   exists (ptrm_nat i) dtyp_nat. splits~.
   constructor~.
-  lets~ : denv_less_precise_dokt_l less_env.
-  apply* pterm_less_precise_nat.
-  lets~ : denv_less_precise_dokt_l less_env.
 
   (* absann *)
   inversions~ less_tm.
@@ -448,13 +445,10 @@ Proof.
     lets~ [? [? ?]]: d2ptyping_regular H6.
     apply dokt_push_typ_inv in H7. auto.
   apply pterm_less_precise_absann with y; auto.
-  apply~ dtyp_less_precise_refl.
-    forwards~ : H0 y.
-    lets~ [? [? ?]]: d2ptyping_regular H6.
-    apply dokt_push_typ_inv in H7. auto.
   assert (y \notin pfv_ee (pclose_ee y s2)).
     apply pclose_ee_fresh.
   auto.
+  apply* dtyp_less_precise'_precise.
   rewrite~ <- pclose_ee_open.
   lets ~ : d2ptyping'_d2ptyping H3.
   lets ~ : d2ptyping_term H6.
@@ -512,12 +506,12 @@ Proof.
   lets ~ : d2ptyping'_regular I4. destructs~ H0.
   apply~ pterm_less_precise_app.
   apply pterm_less_precise_absann with y; auto.
-  apply~ dtyp_less_precise'_precise.
   assert (y \notin pfv_ee (pclose_ee y s3)).
     apply pclose_ee_fresh.
   assert (y \notin dfv_tt C0).
     apply dwft_notin_env with F; auto.
   auto.
+  apply~ dtyp_less_precise'_precise.
   rewrite~ <- pclose_ee_open.
   lets ~ : d2ptyping'_regular I4. destructs~ H0.
 Qed.
@@ -528,7 +522,7 @@ Lemma monotonicity_cast_insertion: forall E F e1 e2 s1 A,
     dterm_less_precise e2 e1 ->
     exists s2 B, d2ptyping F e2 B s2 /\
     dtyp_less_precise B A /\
-    pterm_less_precise F E s2 s1.
+    pterm_less_precise s2 s1.
 Proof.
   introv H1 H2 H3.
   forwards ~ (s2 & B & [? [? ?]]): monotonicity_cast_insertion' H1 H2 H3.

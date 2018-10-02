@@ -9,6 +9,14 @@ Require Import DeclTyping.
 Require Import DeclSub.
 Require Import DeclEnvSub.
 
+(** Matching *)
+Inductive mdmatch : denv -> dtyp -> dtyp -> dtyp -> Prop :=
+  | mdmatch_arrow : forall E A1 A2,
+      mdmatch E (dtyp_arrow A1 A2) A1 A2
+  | mdmatch_unknown : forall E,
+      mdmatch E dtyp_unknown dtyp_unknown dtyp_unknown
+.
+
 Inductive mdtyping : denv -> dtrm -> dtyp -> Prop :=
   | mdtyping_var : forall E x T,
       dokt E ->
@@ -26,15 +34,12 @@ Inductive mdtyping : denv -> dtrm -> dtyp -> Prop :=
       mdtyping E e A ->
       dsub E A B ->
       mdtyping E e B
-  | mdtyping_app1 : forall E e1 e2 A1 A2 A3,
-      mdtyping E e1 (dtyp_arrow A1 A2) ->
+  | mdtyping_app : forall E e1 e2 A A1 A2 A3,
+      mdtyping E e1 A ->
+      mdmatch E A A1 A2 ->
       mdtyping E e2 A3 ->
       dconsist A1 A3 ->
       mdtyping E (dtrm_app e1 e2) A2
-  | mdtyping_app2 : forall E e1 e2 A,
-      mdtyping E e1 dtyp_unknown ->
-      mdtyping E e2 A ->
-      mdtyping E (dtrm_app e1 e2) dtyp_unknown
   | mdtyping_abs : forall L E A B e,
       dtyp_mono A ->
       (forall x, x \notin L ->
@@ -50,6 +55,15 @@ Inductive mdtyping : denv -> dtrm -> dtyp -> Prop :=
             mdtyping (E & x ~: A) (e2 dopen_ee_var x) B) ->
       mdtyping E (dtrm_let e1 e2) B
 .
+
+Lemma mdmatch_regular : forall E A A1 A2,
+    dwft E A ->
+    mdmatch E A A1 A2 ->
+    dwft E A1 /\ dwft E A2.
+Proof.
+  induction 2; eauto.
+  inversions~ H.
+Qed.
 
 Lemma mdtyping_regular : forall E e T,
   mdtyping E e T -> dokt E /\ dterm e /\ dwft E T.
@@ -74,11 +88,7 @@ Proof.
   destructs IHmdtyping1.
   destructs IHmdtyping2.
   splits~.
-  inversions~ H4.
-
-  destructs IHmdtyping1.
-  destructs IHmdtyping2.
-  splits~.
+  apply (proj22 (mdmatch_regular H5 H0)).
 
   splits~.
     pick_fresh y. specializes H1 y. destructs~ H1.
@@ -123,7 +133,7 @@ Hint Extern 1 (dwft ?E ?t) =>
   | H: mdtyping _ _ _ |- _ => apply (proj33 (mdtyping_regular H))
   end.
 
-Hint Constructors mdtyping dtyping.
+Hint Constructors mdmatch mdtyping dtyping.
 
 (** Complete *)
 
@@ -145,13 +155,14 @@ Proof.
       constructor~. apply~ dsub_refl.
       apply dmatch_regular in H; auto.
       destruct H; auto.
-      apply mdtyping_app1 with (A1:=D) (A2:=A2) (A3:=C); auto.
+      apply mdtyping_app with (A:=dtyp_arrow D A2) (A1:=D) (A2:=A2) (A3:=C); auto.
    destruct un as [un1 [un2 un3]].
    assert (I2: mdtyping E e1 dtyp_unknown).
      apply mdtyping_sub with A; auto.
      apply~ dtyp_unknown_like_dsub_l.
      apply mdtyping_sub with dtyp_unknown; auto.
-     apply mdtyping_app2 with C; auto.
+     eapply mdtyping_app with (A:=dtyp_unknown) (A1:=dtyp_unknown)
+                              (A2:=dtyp_unknown) (A3:=C) ; auto.
      apply~ dtyp_unknown_like_dsub_r.
 
   apply_fresh mdtyping_abs as x; auto.
@@ -162,6 +173,13 @@ Proof.
 Qed.
 
 (** Sound *)
+
+Lemma mdmatch_dmatch : forall E A A1 A2,
+    mdmatch E A A1 A2 ->
+    dmatch E A A1 A2.
+Proof.
+  induction 1; constructor~.
+Qed.
 
 Lemma mdtyping_dtyping : forall E e A,
     mdtyping E e A ->
@@ -195,21 +213,20 @@ Proof.
 
   destruct IHty1 as (B1 & [? ?]).
   destruct IHty2 as (B2 & [? ?]).
-  apply dsub_match_arrow in H1.
-  destruct H1 as (C2 & C3 & [? ?]). inversions H4.
-  exists C3. splits~.
-  apply dtyping_app with (A:=B1) (A1:=C2) (A3:=B2); auto.
-  apply dconsub_prop2 with (C:=A3) (D:=A1); auto.
-    
-  destruct IHty1 as (B1 & [? ?]).
-  destruct IHty2 as (B2 & [? ?]).
-  apply dsub_unknown_r in H0.
-  apply unknown_like_match with (E:=E) in H0.
-  destruct H0 as (B & [? ?]).
-  exists B. splits~.
-  apply dtyping_app with (A:=B1) (A1:=dtyp_unknown) (A3:=B2); auto.
-  apply~ dtyp_unknown_like_dsub_l.
-  apply dtyping_regular in H. destructs~ H.
+  inversions H.
+    apply dsub_match_arrow in H2.
+    destruct H2 as (C2 & C3 & [? ?]). inversions H2.
+    exists C3. splits~.
+    apply dtyping_app with (A:=B1) (A1:=C2) (A3:=B2); auto.
+    apply dconsub_prop2 with (C:=A3) (D:=A1); auto.
+
+    apply dsub_unknown_r in H2.
+    apply unknown_like_match with (E:=E) in H2.
+    destruct H2 as (B & [? ?]).
+    exists B. splits~.
+    apply dtyping_app with (A:=B1) (A1:=dtyp_unknown) (A3:=B2); auto.
+    apply~ dtyp_unknown_like_dsub_l.
+    apply dtyping_regular in H3. destructs~ H3.
 
   pick_fresh x.
   forwards ~ (C & [? ?]): H1 x. clear H1.
