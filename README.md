@@ -1,4 +1,4 @@
-# Supplementary Materials
+# Consistent Subtyping for All
 
 This is the supplementary materials for paper *Consistent Subtyping for All*
 published in ESOP 2018 and its follow-up journal submission.
