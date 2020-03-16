@@ -1,5 +1,10 @@
 # Type checker
 
+This project is built upon [the
+implementation](https://github.com/lexi-lambda/higher-rank) for [Complete and
+Easy Bidirectional Typechecking for Higher-Rank
+Polymorphism](https://arxiv.org/abs/1306.6032).
+
 ## Syntax
 
 ### Types
