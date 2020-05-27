@@ -35,4 +35,4 @@ and its significant extended version, published in
 
 + [paper_long.pdf](./paper_long.pdf): Full paper with the appendix for the journal publication.
 + [coq/](./coq) contains all of the Coq development.
-+ [impl/](./impl) contains the implementation for the type checker.
++ [impl/](./impl) contains the Haskell implementation for the type checker.
